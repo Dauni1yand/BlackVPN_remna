@@ -178,17 +178,22 @@ fi
 
 docker compose up -d
 
+log_step "Installing Node.js (for the bot and the panel bootstrap script)"
+install_nodejs
+# better-sqlite3 (bot's local DB) ships prebuilt binaries for common
+# platforms, but falls back to compiling from source when none match —
+# build-essential makes sure that fallback actually works instead of
+# failing on a missing `make`.
+install_pkgs build-essential python3
+
+if [[ ! -d "$BOT_DIR/node_modules" ]]; then
+    log_step "Installing bot dependencies"
+    ( cd "$BOT_DIR" && npm ci --no-audit --no-fund )
+fi
+
 if [[ -f "$BOOTSTRAP_OUT" ]]; then
     log_warn "$BOOTSTRAP_OUT already exists — panel already bootstrapped (API token/Reality config profile), skipping."
 else
-    log_step "Installing Node.js (to run the panel bootstrap script)"
-    install_nodejs
-    # better-sqlite3 (bot's local DB) ships prebuilt binaries for common
-    # platforms, but falls back to compiling from source when none match —
-    # build-essential makes sure that fallback actually works instead of
-    # failing on a missing `make`.
-    install_pkgs build-essential python3
-
     cat <<EOF
 
 Remnawave only allows API tokens to be created from its own browser
@@ -205,7 +210,6 @@ continuing:
 EOF
 
     log_step "Bootstrapping the panel: API token check, VLESS+Reality config profile"
-    ( cd "$BOT_DIR" && npm ci --no-audit --no-fund )
     (
         cd "$BOT_DIR"
         PANEL_URL="http://127.0.0.1:3000" OUT_FILE="$BOOTSTRAP_OUT" npm run --silent bootstrap
@@ -214,10 +218,6 @@ EOF
 fi
 
 log_step "Configuring the Telegram bot"
-if [[ ! -d "$BOT_DIR/node_modules" ]]; then
-    ( cd "$BOT_DIR" && npm ci --no-audit --no-fund )
-fi
-
 BOT_ENV_FILE="$BOT_DIR/.env"
 if [[ ! -f "$BOT_ENV_FILE" ]]; then
     cp "$BOT_DIR/.env.example" "$BOT_ENV_FILE"

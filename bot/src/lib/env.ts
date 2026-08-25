@@ -26,8 +26,18 @@ export async function promptEnv(name: string, question: string): Promise<string>
   const { createInterface } = await import('node:readline/promises');
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    const answer = await rl.question(`${question}\n${name}: `);
-    return answer.trim();
+    // Re-asks on an empty line instead of handing back "" for the caller
+    // to reject — an accidental Enter (or pasting before the terminal was
+    // ready) shouldn't blow up a script that took a minute of npm install
+    // to get here.
+    let answer = '';
+    while (!answer) {
+      answer = (await rl.question(`${question}\n${name}: `)).trim();
+      if (!answer) {
+        console.log(`${name} cannot be empty — paste/type the value and press Enter.`);
+      }
+    }
+    return answer;
   } finally {
     rl.close();
   }
