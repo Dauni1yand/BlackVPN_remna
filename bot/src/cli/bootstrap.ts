@@ -3,20 +3,18 @@ import { chmodSync, writeFileSync } from 'node:fs';
 
 import { RemnawaveClient, type ConfigProfile } from '../remnawave/client.js';
 import { buildVlessRealityInbound, generateShortId } from '../remnawave/reality-inbound.js';
-import { generateStrongPassword } from '../lib/secrets.js';
-import { optionalEnv, requireEnv } from '../lib/env.js';
+import { optionalEnv, promptEnv, requireEnv } from '../lib/env.js';
 
-// One-shot panel bootstrap, meant to run exactly once right after a fresh
-// `docker compose up -d` of Remnawave Panel:
+// One-shot panel bootstrap, meant to run once after `docker compose up -d`
+// of Remnawave Panel and Caddy:
 //
-//   1. Registers the superadmin account (only works while no admin exists
-//      yet — the panel itself enforces that, so this is safe to attempt).
-//   2. Issues a long-lived API token for the bot to use afterwards.
-//   3. Makes sure some Config Profile has a VLESS+Reality inbound (adds
+//   1. Asks for an API token (created by a human, once, in the panel's own
+//      dashboard) and the bot admins' Telegram ids.
+//   2. Makes sure some Config Profile has a VLESS+Reality inbound (adds
 //      one to the panel's own auto-seeded "Default-Profile" if missing;
 //      leaves everything else, including the seeded Shadowsocks inbound,
 //      untouched).
-//   4. Makes sure that inbound is actually reachable by users: Remnawave
+//   3. Makes sure that inbound is actually reachable by users: Remnawave
 //      only hands a user traffic for inbounds in their Internal Squads
 //      (a separate, explicit list — adding an inbound to a Config Profile
 //      does NOT add it to any squad automatically, and the panel's own
@@ -24,15 +22,43 @@ import { optionalEnv, requireEnv } from '../lib/env.js';
 //      existed at first boot, i.e. just the seeded Shadowsocks one). So
 //      this adds the Reality inbound to the squad too.
 //
-// Re-running is safe: each step is skipped if already done, and the whole
-// thing refuses to touch an existing superadmin unless ADMIN_PASSWORD is
-// supplied to log in with.
+// Why the API token can't be created by this script: Remnawave's admin
+// login/JWT session only works from the actual browser dashboard (it
+// checks a client-type header) — creating API tokens through any other
+// client is rejected with 403 "you must create own API-token in the admin
+// dashboard", by design. So the one unavoidable manual step is: open the
+// panel, create the superadmin account (first visit registers it), go to
+// Remnawave Settings -> API Tokens, create one, and paste it here.
+//
+// Re-running is safe: the config profile / inbound / squad steps are all
+// skipped if already done.
 
 async function main(): Promise<void> {
   const panelUrl = requireEnv('PANEL_URL');
-  const adminUsername = optionalEnv('ADMIN_USERNAME', 'admin');
-  const apiTokenName = optionalEnv('API_TOKEN_NAME', 'blackvpn-bot');
-  const apiTokenExpiresDays = Number(optionalEnv('API_TOKEN_EXPIRES_DAYS', '3650'));
+
+  const apiToken = await promptEnv(
+    'API_TOKEN',
+    'Remnawave API token (create it in the dashboard: Remnawave Settings -> API Tokens, ' +
+      'after creating the superadmin account on first visit to the panel URL).',
+  );
+  if (!apiToken) {
+    throw new Error('An API token is required to continue.');
+  }
+
+  const adminTelegramIds = (
+    await promptEnv(
+      'ADMIN_TELEGRAM_IDS',
+      'Telegram user id(s) of the bot admin(s), comma-separated (e.g. 123456789). ' +
+        'Ask each admin their id, e.g. via @userinfobot.',
+    )
+  ).trim();
+  if (!adminTelegramIds) {
+    throw new Error('At least one admin Telegram id is required to continue.');
+  }
+  if (!/^\d+(\s*,\s*\d+)*$/.test(adminTelegramIds)) {
+    throw new Error(`ADMIN_TELEGRAM_IDS should be numeric id(s) separated by commas, got: "${adminTelegramIds}"`);
+  }
+
   const configProfileName = optionalEnv('CONFIG_PROFILE_NAME', 'Default-Profile');
   const inboundTag = optionalEnv('REALITY_INBOUND_TAG', 'VLESS_REALITY');
   const squadName = optionalEnv('INTERNAL_SQUAD_NAME', 'Default-Squad');
@@ -44,40 +70,7 @@ async function main(): Promise<void> {
     .filter(Boolean);
   const outFile = optionalEnv('OUT_FILE', './bootstrap-summary.json');
 
-  const client = new RemnawaveClient(panelUrl);
-
-  console.log(`==> Checking panel status at ${panelUrl}`);
-  const status = await client.getStatus();
-
-  let accessToken: string;
-  let adminPassword: string | undefined;
-  let adminCreated = false;
-
-  if (status.isRegisterAllowed) {
-    adminPassword = process.env.ADMIN_PASSWORD || generateStrongPassword(32);
-    console.log(`==> No superadmin yet — registering "${adminUsername}"`);
-    const reg = await client.register(adminUsername, adminPassword);
-    accessToken = reg.accessToken;
-    adminCreated = true;
-  } else {
-    console.log('==> Superadmin already exists');
-    const password = process.env.ADMIN_PASSWORD;
-    if (!password) {
-      throw new Error(
-        'A superadmin is already registered on this panel. Set ADMIN_USERNAME/ADMIN_PASSWORD ' +
-          'to log in and continue (API token + config profile checks), or skip bootstrap entirely ' +
-          'if it already ran once.',
-      );
-    }
-    console.log('==> Logging in with the provided admin credentials');
-    const login = await client.login(adminUsername, password);
-    accessToken = login.accessToken;
-  }
-
-  client.setToken(accessToken);
-
-  console.log(`==> Creating API token "${apiTokenName}" (expires in ${apiTokenExpiresDays} days)`);
-  const apiToken = await client.createApiToken(apiTokenName, apiTokenExpiresDays);
+  const client = new RemnawaveClient(panelUrl, apiToken);
 
   console.log(`==> Looking for config profile "${configProfileName}"`);
   const { configProfiles } = await client.getConfigProfiles();
@@ -159,17 +152,8 @@ async function main(): Promise<void> {
 
   const summary = {
     panelUrl,
-    admin: {
-      username: adminUsername,
-      password: adminCreated ? adminPassword : undefined,
-      created: adminCreated,
-    },
-    apiToken: {
-      uuid: apiToken.uuid,
-      token: apiToken.token,
-      name: apiToken.name,
-      expireAt: apiToken.expireAt,
-    },
+    apiToken: { token: apiToken },
+    adminTelegramIds,
     configProfile: { uuid: profile.uuid, name: profile.name },
     inbound: {
       uuid: inbound.uuid,
@@ -190,18 +174,13 @@ async function main(): Promise<void> {
   }
 
   console.log(`\n==> Bootstrap complete. Summary written to ${outFile}`);
-  if (adminCreated) {
-    console.log(`    Superadmin login:  ${adminUsername}`);
-    console.log(`    Superadmin password: ${adminPassword}`);
-    console.log('    This password is only printed once — save it now (or read it from the summary file).');
-  }
-  console.log(`    API token (for the bot): ${apiToken.token}`);
   console.log(`    Config profile: "${profile.name}" (${profile.uuid})`);
   console.log(`    Reality inbound: "${inbound.tag}" (${inbound.uuid}), port ${realityPort}`);
   console.log(`    Internal squad: "${squad.name}" (${squad.uuid})`);
   if (realityPublicKey) {
     console.log(`    Reality public key: ${realityPublicKey}`);
   }
+  console.log(`    Bot admin Telegram id(s): ${adminTelegramIds}`);
 }
 
 main().catch((error: unknown) => {

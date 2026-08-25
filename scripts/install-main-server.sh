@@ -134,7 +134,7 @@ fi
 docker compose up -d
 
 if [[ -f "$BOOTSTRAP_OUT" ]]; then
-    log_warn "$BOOTSTRAP_OUT already exists — panel already bootstrapped (superadmin/API token/Reality config profile), skipping."
+    log_warn "$BOOTSTRAP_OUT already exists — panel already bootstrapped (API token/Reality config profile), skipping."
 else
     log_step "Installing Node.js (to run the panel bootstrap script)"
     install_nodejs
@@ -144,7 +144,22 @@ else
     # failing on a missing `make`.
     install_pkgs build-essential python3
 
-    log_step "Bootstrapping the panel: superadmin account, API token, VLESS+Reality config profile"
+    cat <<EOF
+
+Remnawave only allows API tokens to be created from its own browser
+dashboard (a scripted login session is deliberately rejected) — so before
+continuing:
+
+  1. Open https://${PANEL_DOMAIN} in a browser. The first visit registers
+     the superadmin account — do this now, before anyone else can.
+  2. In the dashboard, go to Remnawave Settings -> API Tokens and create
+     a token.
+  3. Have the Telegram user id(s) of the bot's admin(s) ready too (each
+     admin can get their own id from a bot like @userinfobot).
+
+EOF
+
+    log_step "Bootstrapping the panel: API token check, VLESS+Reality config profile"
     ( cd "$BOT_DIR" && npm ci --no-audit --no-fund )
     (
         cd "$BOT_DIR"
@@ -156,18 +171,18 @@ fi
 log_step "Done"
 cat <<EOF
 
-Remnawave Panel is up behind Caddy, and bootstrapped (superadmin account,
-API token for the bot, and a VLESS+Reality inbound on top of the panel's
-own default config profile).
+Remnawave Panel is up behind Caddy, and bootstrapped (a VLESS+Reality
+inbound on top of the panel's own default config profile, reachable by
+users, plus the API token and admin Telegram id(s) saved for the bot).
 
   Panel URL:        https://${PANEL_DOMAIN}
   Panel files:       ${REMNAWAVE_DIR} (.env has generated secrets, chmod 600)
   Caddy files:        ${CADDY_DIR}
-  Bootstrap summary:   ${BOOTSTRAP_OUT} (superadmin password + API token — chmod 600, scroll up for the one-time printout)
+  Bootstrap summary:   ${BOOTSTRAP_OUT} (API token — chmod 600)
 
 Next steps:
-  1. Log in at https://${PANEL_DOMAIN} with the superadmin credentials
-     printed above (or read them from ${BOOTSTRAP_OUT}).
+  1. cd bot && cp .env.example .env, set BOT_TOKEN (from @BotFather), then
+     npm run bot (or bot:dev) to start the Telegram bot.
   2. To add a VPN node, run scripts/add-node.sh — it registers the node
      and its Host entry on the panel via the API token from bootstrap, and
      prints (or, with NODE_SSH_HOST set, runs) the scripts/install-node.sh

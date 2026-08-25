@@ -5,6 +5,7 @@ import { optionalEnv, requireEnv } from '../lib/env.js';
 interface BootstrapSummary {
   apiToken?: { token?: string };
   internalSquad?: { uuid?: string };
+  adminTelegramIds?: string;
 }
 
 function loadBootstrapSummary(path: string): BootstrapSummary {
@@ -52,13 +53,20 @@ export function loadBotConfig(): BotConfig {
     );
   }
 
+  const adminTelegramIdsRaw = process.env.ADMIN_TELEGRAM_IDS || summary.adminTelegramIds || '';
   const adminTelegramIds = new Set(
-    optionalEnv('ADMIN_TELEGRAM_IDS', '')
+    adminTelegramIdsRaw
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean)
       .map(Number),
   );
+  if (adminTelegramIds.size === 0) {
+    throw new Error(
+      `No bot admins configured. Set ADMIN_TELEGRAM_IDS, or run "npm run bootstrap" first ` +
+        `(expected its output at ${bootstrapFile}).`,
+    );
+  }
 
   const trialDays = Number(optionalEnv('TRIAL_DAYS', '3'));
   const trialTrafficGb = Number(optionalEnv('TRIAL_TRAFFIC_GB', '10'));

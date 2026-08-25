@@ -51,14 +51,6 @@ export interface RemnawaveHost {
   [key: string]: unknown;
 }
 
-export interface ApiTokenResult {
-  uuid: string;
-  name: string;
-  token: string;
-  scopes: string[];
-  expireAt: string;
-}
-
 export interface InternalSquad {
   uuid: string;
   viewPosition: number;
@@ -96,7 +88,7 @@ export class RemnawaveApiError extends Error {
 export class RemnawaveClient {
   private readonly http: AxiosInstance;
 
-  constructor(baseURL: string, token?: string) {
+  constructor(baseURL: string, token: string) {
     this.http = axios.create({
       baseURL,
       timeout: 30_000,
@@ -106,13 +98,9 @@ export class RemnawaveClient {
         // documented pattern from Remnawave's own TypeScript SDK guide.
         'x-forwarded-for': '127.0.0.1',
         'x-forwarded-proto': 'https',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        Authorization: `Bearer ${token}`,
       },
     });
-  }
-
-  setToken(token: string): void {
-    this.http.defaults.headers.common.Authorization = `Bearer ${token}`;
   }
 
   private async request<T>(config: AxiosRequestConfig): Promise<T> {
@@ -133,22 +121,6 @@ export class RemnawaveClient {
       }
       throw error;
     }
-  }
-
-  getStatus(): Promise<{ isLoginAllowed: boolean; isRegisterAllowed: boolean }> {
-    return this.request({ url: '/api/auth/status', method: 'GET' });
-  }
-
-  register(username: string, password: string): Promise<{ accessToken: string }> {
-    return this.request({ url: '/api/auth/register', method: 'POST', data: { username, password } });
-  }
-
-  login(username: string, password: string): Promise<{ accessToken: string }> {
-    return this.request({ url: '/api/auth/login', method: 'POST', data: { username, password } });
-  }
-
-  createApiToken(name: string, expiresInDays: number, scopes: string[] = ['*']): Promise<ApiTokenResult> {
-    return this.request({ url: '/api/tokens', method: 'POST', data: { name, expiresInDays, scopes } });
   }
 
   getConfigProfiles(): Promise<{ total: number; configProfiles: ConfigProfile[] }> {

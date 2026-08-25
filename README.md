@@ -49,10 +49,16 @@ sudo PANEL_DOMAIN=panel.example.com bash scripts/install-main-server.sh
    `SUB_PUBLIC_DOMAIN`) и поднимает панель (`docker compose up -d`).
 5. Поднимает Caddy как reverse proxy с автоматическим SSL.
 6. Ставит Node.js и запускает `bot/src/cli/bootstrap.ts`, который:
-   - регистрирует супер-админа (уникально: работает только пока в панели
-     ещё нет ни одного админа — это гарантирует сама панель) со
-     сгенерированным паролем;
-   - создаёт для бота долгоживущий API-токен;
+   - спрашивает **API-токен** — его придётся создать самому: Remnawave
+     намеренно не даёт скриптам создавать API-токены через JWT-сессию
+     логина/регистрации (это разрешено только из браузера, иначе 403
+     "you must create own API-token in the admin dashboard"). Скрипт
+     остановится и попросит: открыть `https://panel.example.com`, при
+     первом заходе завести супер-админа, зайти в
+     `Remnawave Settings -> API Tokens`, создать токен и вставить его в
+     терминал;
+   - спрашивает **Telegram id админов бота** (кому будет доступна
+     "⚙️ Админ-панель") — их тоже нужно просто ввести в терминал;
    - добавляет в автоматически засеянный панелью `Default-Profile`
      инбаунд **VLESS + Reality** (порт 443, свежесгенерированный
      X25519-ключ, случайный shortId), не трогая уже существующий
@@ -62,10 +68,12 @@ sudo PANEL_DOMAIN=panel.example.com bash scripts/install-main-server.sh
      раздаёт трафик только по Internal Squad, а не по факту наличия
      инбаунда в Config Profile).
 
-Пароль супер-админа и API-токен печатаются в терминал один раз и
-сохраняются в `${REMNAWAVE_DIR:-/opt/remnawave}/bootstrap-summary.json`
-(`chmod 600`). Повторный запуск скрипта пропускает бутстрап, если этот
-файл уже существует.
+Введённые API-токен и id админов сохраняются в
+`${REMNAWAVE_DIR:-/opt/remnawave}/bootstrap-summary.json` (`chmod 600`) —
+бот подхватывает их оттуда сам, вручную копировать в `bot/.env` не нужно.
+Повторный запуск скрипта пропускает бутстрап, если этот файл уже
+существует. Если задать `API_TOKEN`/`ADMIN_TELEGRAM_IDS` в окружении
+заранее, скрипт ничего не спросит и пройдёт неинтерактивно.
 
 Для более защищённого периметра (MFA на логине, API-ключи для `/api/*`)
 позже можно перейти на `remnawave/caddy-with-auth` — см. документацию
@@ -110,14 +118,16 @@ SSH одной командой.
 
 ## Telegram-бот
 
-Каркас на [grammY](https://grammy.dev/). Токен и id админов задаются
-через `.env` (скопируй `bot/.env.example` в `bot/.env`), остальное — API-токен
-и uuid Internal Squad — бот сам подхватывает из `bootstrap-summary.json`.
+Каркас на [grammY](https://grammy.dev/). Единственное, что нужно задать
+через `.env` (скопируй `bot/.env.example` в `bot/.env`) — это `BOT_TOKEN`
+от @BotFather. Остальное (API-токен, id админов, uuid Internal Squad) бот
+сам подхватывает из `bootstrap-summary.json`, если уже прошёл
+`npm run bootstrap` — вручную дублировать в `bot/.env` не нужно.
 
 ```bash
 cd bot
 npm install
-cp .env.example .env   # прописать BOT_TOKEN и ADMIN_TELEGRAM_IDS
+cp .env.example .env   # прописать BOT_TOKEN
 npm run bot            # long polling; npm run bot:dev — с автоперезапуском
 ```
 
