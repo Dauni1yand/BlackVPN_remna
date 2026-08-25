@@ -138,6 +138,11 @@ if [[ -f "$BOOTSTRAP_OUT" ]]; then
 else
     log_step "Installing Node.js (to run the panel bootstrap script)"
     install_nodejs
+    # better-sqlite3 (bot's local DB) ships prebuilt binaries for common
+    # platforms, but falls back to compiling from source when none match —
+    # build-essential makes sure that fallback actually works instead of
+    # failing on a missing `make`.
+    install_pkgs build-essential python3
 
     log_step "Bootstrapping the panel: superadmin account, API token, VLESS+Reality config profile"
     ( cd "$BOT_DIR" && npm ci --no-audit --no-fund )
