@@ -77,6 +77,30 @@ prompt_var() {
     die "$var_name is not set and no TTY is attached to prompt for it. Re-run with $var_name=... set in the environment."
 }
 
+# Guards a destructive step: requires the operator to type the given word
+# exactly, unless CONFIRM_VAR is already set to "1" (for scripted/CI use).
+# Fails closed — no TTY and no bypass var means it refuses, it never just
+# proceeds.
+confirm_or_die() {
+    local message="$1" confirm_word="$2" confirm_var="$3"
+
+    if [[ "${!confirm_var:-}" == "1" ]]; then
+        return 0
+    fi
+
+    log_warn "$message"
+
+    if [[ ! -t 0 ]]; then
+        die "No TTY attached to confirm. Re-run with ${confirm_var}=1 if you really mean it."
+    fi
+
+    local answer
+    read -r -p "Type $confirm_word to confirm, anything else to abort: " answer </dev/tty
+    if [[ "$answer" != "$confirm_word" ]]; then
+        die "Not confirmed, aborting."
+    fi
+}
+
 random_hex() {
     local bytes="${1:-32}"
     openssl rand -hex "$bytes"

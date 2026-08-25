@@ -16,6 +16,13 @@
 # Re-running is safe: if Remnawave is already configured (.env exists), the
 # script skips secret generation and just makes sure the stack is up.
 #
+# To wipe everything and start over (fresh Postgres, fresh secrets, fresh
+# bootstrap prompts — e.g. while iterating during setup), set RESET_INSTALL:
+#   sudo RESET_INSTALL=1 PANEL_DOMAIN=panel.example.com bash scripts/install-main-server.sh
+# This asks for a typed confirmation (see confirm_or_die in lib/common.sh)
+# before touching anything. It does NOT wipe Caddy's SSL certificate cache,
+# to avoid hitting Let's Encrypt's rate limits on repeated resets.
+#
 # Environment variables (all optional except PANEL_DOMAIN, which is asked
 # interactively if omitted and a terminal is attached):
 #   PANEL_DOMAIN          Domain for the panel, e.g. panel.example.com.
@@ -23,6 +30,9 @@
 #   REMNAWAVE_DIR         Install dir for the panel. Default: /opt/remnawave
 #   REMNAWAVE_BACKEND_REF Git ref of remnawave/backend to pull compose/env
 #                         files from. Default: main
+#   RESET_INSTALL          Set to 1 to wipe the existing install first.
+#   RESET_INSTALL_CONFIRM   Set to 1 to skip the typed confirmation prompt
+#                            (for scripted/non-interactive resets).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
@@ -44,6 +54,36 @@ PANEL_DOMAIN="$(prompt_var PANEL_DOMAIN "Panel domain (DNS A record must already
 [[ -n "$PANEL_DOMAIN" ]] || die "PANEL_DOMAIN is required"
 
 install_docker
+
+if [[ "${RESET_INSTALL:-}" == "1" ]]; then
+    cat <<EOF
+
+RESET_INSTALL=1: this will permanently delete the existing install before
+setting it back up from scratch:
+  - The Postgres database in $REMNAWAVE_DIR (every admin, config profile,
+    node, user and subscription Remnawave knows about)
+  - $REMNAWAVE_DIR/.env (generated secrets) and its docker-compose.yml
+  - $CADDY_DIR/Caddyfile and its docker-compose.yml (the SSL certificate
+    cache itself is kept, to avoid Let's Encrypt rate limits)
+  - $BOOTSTRAP_OUT (API token / config profile / squad record)
+  - $BOT_DIR/data (local trial-subscription tracking)
+
+EOF
+    confirm_or_die "About to wipe the Remnawave install for ${PANEL_DOMAIN}." RESET RESET_INSTALL_CONFIRM
+
+    log_step "Wiping the existing install"
+    if [[ -f "$CADDY_DIR/docker-compose.yml" ]]; then
+        (cd "$CADDY_DIR" && docker compose down --remove-orphans) || true
+    fi
+    if [[ -f "$REMNAWAVE_DIR/docker-compose.yml" ]]; then
+        (cd "$REMNAWAVE_DIR" && docker compose down -v --remove-orphans) || true
+    fi
+    rm -f "$REMNAWAVE_DIR/.env" "$REMNAWAVE_DIR/docker-compose.yml"
+    rm -f "$CADDY_DIR/Caddyfile" "$CADDY_DIR/docker-compose.yml"
+    rm -f "$BOOTSTRAP_OUT"
+    rm -rf "$BOT_DIR/data"
+    log_info "Wiped. Continuing with a fresh install."
+fi
 
 log_step "Configuring firewall (ssh, 80, 443)"
 setup_firewall 80/tcp 443/tcp
