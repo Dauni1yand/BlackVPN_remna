@@ -32,7 +32,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
-BOT_DIR="$SCRIPT_DIR/../bot"
+BOT_DIR="$(cd -- "$SCRIPT_DIR/../bot" &>/dev/null && pwd)"
 # shellcheck source=lib/common.sh
 source "$SCRIPT_DIR/lib/common.sh"
 

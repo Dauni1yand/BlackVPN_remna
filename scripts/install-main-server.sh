@@ -44,7 +44,7 @@ detect_os
 
 REMNAWAVE_DIR="${REMNAWAVE_DIR:-/opt/remnawave}"
 CADDY_DIR="$REMNAWAVE_DIR/caddy"
-BOT_DIR="$SCRIPT_DIR/../bot"
+BOT_DIR="$(cd -- "$SCRIPT_DIR/../bot" &>/dev/null && pwd)"
 BOOTSTRAP_OUT="$REMNAWAVE_DIR/bootstrap-summary.json"
 BACKEND_REF="${REMNAWAVE_BACKEND_REF:-main}"
 COMPOSE_URL="https://raw.githubusercontent.com/remnawave/backend/refs/heads/${BACKEND_REF}/docker-compose-prod.yml"
