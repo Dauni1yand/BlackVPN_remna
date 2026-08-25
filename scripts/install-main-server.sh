@@ -68,10 +68,15 @@ setting it back up from scratch:
   - $BOOTSTRAP_OUT (API token / config profile / squad record)
   - $BOT_DIR/data (local trial-subscription tracking)
 
+The bot's BOT_TOKEN (in $BOT_DIR/.env) is left alone — no need to make a
+new bot in @BotFather just to reset the panel. The bot service is stopped
+during the wipe and restarted once the fresh install is bootstrapped.
+
 EOF
     confirm_or_die "About to wipe the Remnawave install for ${PANEL_DOMAIN}." RESET RESET_INSTALL_CONFIRM
 
     log_step "Wiping the existing install"
+    systemctl stop blackvpn-bot >/dev/null 2>&1 || true
     if [[ -f "$CADDY_DIR/docker-compose.yml" ]]; then
         (cd "$CADDY_DIR" && docker compose down --remove-orphans) || true
     fi
@@ -208,21 +213,79 @@ EOF
     chmod 600 "$BOOTSTRAP_OUT"
 fi
 
+log_step "Configuring the Telegram bot"
+if [[ ! -d "$BOT_DIR/node_modules" ]]; then
+    ( cd "$BOT_DIR" && npm ci --no-audit --no-fund )
+fi
+
+BOT_ENV_FILE="$BOT_DIR/.env"
+if [[ ! -f "$BOT_ENV_FILE" ]]; then
+    cp "$BOT_DIR/.env.example" "$BOT_ENV_FILE"
+fi
+
+if grep -qE '^BOT_TOKEN=.+' "$BOT_ENV_FILE"; then
+    log_info "BOT_TOKEN already set in $BOT_ENV_FILE, leaving it as is."
+else
+    BOT_TOKEN="$(prompt_var BOT_TOKEN "Telegram bot token from @BotFather (looks like 123456789:AAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx)")"
+    [[ -n "$BOT_TOKEN" ]] || die "BOT_TOKEN is required"
+    if [[ ! "$BOT_TOKEN" =~ ^[0-9]+:[A-Za-z0-9_-]+$ ]]; then
+        log_warn "That doesn't look like a Telegram bot token, but continuing anyway."
+    fi
+    if grep -q '^BOT_TOKEN=' "$BOT_ENV_FILE"; then
+        sed -i "s|^BOT_TOKEN=.*|BOT_TOKEN=$BOT_TOKEN|" "$BOT_ENV_FILE"
+    else
+        printf 'BOT_TOKEN=%s\n' "$BOT_TOKEN" >>"$BOT_ENV_FILE"
+    fi
+fi
+chmod 600 "$BOT_ENV_FILE"
+
+log_step "Installing the bot as a systemd service"
+NPM_BIN="$(command -v npm)"
+cat >/etc/systemd/system/blackvpn-bot.service <<EOF
+[Unit]
+Description=BlackVPN Telegram bot
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=$BOT_DIR
+ExecStart=$NPM_BIN run --silent bot
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable blackvpn-bot >/dev/null
+systemctl restart blackvpn-bot
+
+sleep 2
+if systemctl is-active --quiet blackvpn-bot; then
+    log_info "Bot service is running."
+else
+    log_warn "Bot service did not stay up — check: journalctl -u blackvpn-bot -e"
+fi
+
 log_step "Done"
 cat <<EOF
 
-Remnawave Panel is up behind Caddy, and bootstrapped (a VLESS+Reality
+Remnawave Panel is up behind Caddy and bootstrapped (a VLESS+Reality
 inbound on top of the panel's own default config profile, reachable by
-users, plus the API token and admin Telegram id(s) saved for the bot).
+users), and the Telegram bot is running as a systemd service.
 
   Panel URL:        https://${PANEL_DOMAIN}
   Panel files:       ${REMNAWAVE_DIR} (.env has generated secrets, chmod 600)
   Caddy files:        ${CADDY_DIR}
   Bootstrap summary:   ${BOOTSTRAP_OUT} (API token — chmod 600)
+  Bot service:          systemctl status blackvpn-bot / journalctl -u blackvpn-bot -f
+  Bot env file:          ${BOT_DIR}/.env (chmod 600)
 
 Next steps:
-  1. cd bot && cp .env.example .env, set BOT_TOKEN (from @BotFather), then
-     npm run bot (or bot:dev) to start the Telegram bot.
+  1. Open the bot in Telegram and try "🎁 Пробная подписка" to confirm the
+     panel <-> node <-> bot chain actually works end to end.
   2. To add a VPN node, run scripts/add-node.sh — it registers the node
      and its Host entry on the panel via the API token from bootstrap, and
      prints (or, with NODE_SSH_HOST set, runs) the scripts/install-node.sh

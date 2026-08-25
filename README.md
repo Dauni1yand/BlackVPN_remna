@@ -82,13 +82,24 @@ sudo RESET_INSTALL=1 PANEL_DOMAIN=panel.example.com bash scripts/install-main-se
      пользователям подписки физически не видели бы новый инбаунд (Remnawave
      раздаёт трафик только по Internal Squad, а не по факту наличия
      инбаунда в Config Profile).
+7. Спрашивает **BOT_TOKEN** (от @BotFather, если его ещё нет в `bot/.env`)
+   и поднимает бота как systemd-сервис `blackvpn-bot` (`Restart=always` —
+   переживает падения и перезагрузку сервера).
 
 Введённые API-токен и id админов сохраняются в
 `${REMNAWAVE_DIR:-/opt/remnawave}/bootstrap-summary.json` (`chmod 600`) —
 бот подхватывает их оттуда сам, вручную копировать в `bot/.env` не нужно.
-Повторный запуск скрипта пропускает бутстрап, если этот файл уже
-существует. Если задать `API_TOKEN`/`ADMIN_TELEGRAM_IDS` в окружении
-заранее, скрипт ничего не спросит и пройдёт неинтерактивно.
+BOT_TOKEN сохраняется в `bot/.env` (`chmod 600`) и не спрашивается
+повторно при следующих запусках скрипта (в том числе после
+`RESET_INSTALL` — токен бота не привязан к состоянию панели, пересоздавать
+бота в @BotFather не нужно).
+
+Повторный запуск скрипта пропускает уже выполненные шаги. Если задать
+`API_TOKEN`/`ADMIN_TELEGRAM_IDS`/`BOT_TOKEN` в окружении заранее, скрипт
+ничего не спросит и пройдёт полностью неинтерактивно.
+
+Статус и логи бота: `systemctl status blackvpn-bot`,
+`journalctl -u blackvpn-bot -f`.
 
 Для более защищённого периметра (MFA на логине, API-ключи для `/api/*`)
 позже можно перейти на `remnawave/caddy-with-auth` — см. документацию
@@ -133,11 +144,12 @@ SSH одной командой.
 
 ## Telegram-бот
 
-Каркас на [grammY](https://grammy.dev/). Единственное, что нужно задать
-через `.env` (скопируй `bot/.env.example` в `bot/.env`) — это `BOT_TOKEN`
-от @BotFather. Остальное (API-токен, id админов, uuid Internal Squad) бот
-сам подхватывает из `bootstrap-summary.json`, если уже прошёл
-`npm run bootstrap` — вручную дублировать в `bot/.env` не нужно.
+Каркас на [grammY](https://grammy.dev/). На главном сервере
+`install-main-server.sh` сам спрашивает `BOT_TOKEN` и поднимает бота как
+systemd-сервис `blackvpn-bot` — руками ничего запускать не нужно (см.
+раздел про установку выше).
+
+Для локальной разработки/тестов запусти вручную:
 
 ```bash
 cd bot
@@ -145,6 +157,11 @@ npm install
 cp .env.example .env   # прописать BOT_TOKEN
 npm run bot            # long polling; npm run bot:dev — с автоперезапуском
 ```
+
+Единственное, что нужно задать в `.env` — `BOT_TOKEN` от @BotFather.
+Остальное (API-токен, id админов, uuid Internal Squad) бот сам
+подхватывает из `bootstrap-summary.json`, если уже прошёл
+`npm run bootstrap` — вручную дублировать в `bot/.env` не нужно.
 
 Что уже работает:
 
