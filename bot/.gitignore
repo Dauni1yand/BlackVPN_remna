@@ -6,3 +6,10 @@ dist/
 # Contains a superadmin password and a long-lived API token — never commit.
 bootstrap-summary.json
 add-node-result.json
+
+# Local bot state (trial grants, later tickets/pricing).
+data/
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm

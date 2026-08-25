@@ -16,6 +16,13 @@ import { optionalEnv, requireEnv } from '../lib/env.js';
 //      one to the panel's own auto-seeded "Default-Profile" if missing;
 //      leaves everything else, including the seeded Shadowsocks inbound,
 //      untouched).
+//   4. Makes sure that inbound is actually reachable by users: Remnawave
+//      only hands a user traffic for inbounds in their Internal Squads
+//      (a separate, explicit list — adding an inbound to a Config Profile
+//      does NOT add it to any squad automatically, and the panel's own
+//      auto-seeded "Default-Squad" is only wired up to whatever inbounds
+//      existed at first boot, i.e. just the seeded Shadowsocks one). So
+//      this adds the Reality inbound to the squad too.
 //
 // Re-running is safe: each step is skipped if already done, and the whole
 // thing refuses to touch an existing superadmin unless ADMIN_PASSWORD is
@@ -28,6 +35,7 @@ async function main(): Promise<void> {
   const apiTokenExpiresDays = Number(optionalEnv('API_TOKEN_EXPIRES_DAYS', '3650'));
   const configProfileName = optionalEnv('CONFIG_PROFILE_NAME', 'Default-Profile');
   const inboundTag = optionalEnv('REALITY_INBOUND_TAG', 'VLESS_REALITY');
+  const squadName = optionalEnv('INTERNAL_SQUAD_NAME', 'Default-Squad');
   const realityPort = Number(optionalEnv('REALITY_PORT', '443'));
   const realityDest = optionalEnv('REALITY_DEST', 'www.google.com:443');
   const serverNames = optionalEnv('REALITY_SERVER_NAMES', 'www.google.com')
@@ -133,6 +141,22 @@ async function main(): Promise<void> {
     }
   }
 
+  console.log(`==> Checking internal squad "${squadName}" grants access to "${inboundTag}"`);
+  const { internalSquads } = await client.getInternalSquads();
+  let squad = internalSquads.find((s) => s.name === squadName) ?? internalSquads[0];
+
+  if (!squad) {
+    console.log(`==> No internal squad exists yet — creating "${squadName}" with "${inboundTag}"`);
+    squad = await client.createInternalSquad(squadName, [inbound.uuid]);
+  } else if (squad.inbounds.some((i) => i.uuid === inbound.uuid)) {
+    console.log(`==> Squad "${squad.name}" already includes "${inboundTag}"`);
+  } else {
+    console.log(`==> Adding "${inboundTag}" to squad "${squad.name}"`);
+    squad = await client.updateInternalSquad(squad.uuid, {
+      inbounds: [...squad.inbounds.map((i) => i.uuid), inbound.uuid],
+    });
+  }
+
   const summary = {
     panelUrl,
     admin: {
@@ -155,6 +179,7 @@ async function main(): Promise<void> {
       dest: realityDest,
       publicKey: realityPublicKey,
     },
+    internalSquad: { uuid: squad.uuid, name: squad.name },
   };
 
   writeFileSync(outFile, JSON.stringify(summary, null, 2));
@@ -173,6 +198,7 @@ async function main(): Promise<void> {
   console.log(`    API token (for the bot): ${apiToken.token}`);
   console.log(`    Config profile: "${profile.name}" (${profile.uuid})`);
   console.log(`    Reality inbound: "${inbound.tag}" (${inbound.uuid}), port ${realityPort}`);
+  console.log(`    Internal squad: "${squad.name}" (${squad.uuid})`);
   if (realityPublicKey) {
     console.log(`    Reality public key: ${realityPublicKey}`);
   }

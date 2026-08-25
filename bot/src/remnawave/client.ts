@@ -59,6 +59,28 @@ export interface ApiTokenResult {
   expireAt: string;
 }
 
+export interface InternalSquad {
+  uuid: string;
+  viewPosition: number;
+  name: string;
+  info: { membersCount: number; inboundsCount: number };
+  inbounds: ConfigProfileInbound[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RemnawaveUser {
+  id: number;
+  shortUuid: string;
+  username: string;
+  status: 'ACTIVE' | 'DISABLED' | 'LIMITED' | 'EXPIRED';
+  subscriptionUrl: string;
+  expireAt: string;
+  trafficLimitBytes: number;
+  telegramId: number | null;
+  [key: string]: unknown;
+}
+
 export class RemnawaveApiError extends Error {
   status?: number;
   data?: unknown;
@@ -160,6 +182,31 @@ export class RemnawaveClient {
     configProfile: { activeConfigProfileUuid: string; activeInbounds: string[] };
   }): Promise<RemnawaveNode> {
     return this.request({ url: '/api/nodes', method: 'POST', data: body });
+  }
+
+  getInternalSquads(): Promise<{ total: number; internalSquads: InternalSquad[] }> {
+    return this.request({ url: '/api/internal-squads', method: 'GET' });
+  }
+
+  createInternalSquad(name: string, inbounds: string[]): Promise<InternalSquad> {
+    return this.request({ url: '/api/internal-squads', method: 'POST', data: { name, inbounds } });
+  }
+
+  updateInternalSquad(uuid: string, body: { name?: string; inbounds?: string[] }): Promise<InternalSquad> {
+    return this.request({ url: '/api/internal-squads', method: 'PATCH', data: { uuid, ...body } });
+  }
+
+  createUser(body: {
+    username: string;
+    expireAt: string;
+    trafficLimitBytes?: number;
+    trafficLimitStrategy?: 'NO_RESET' | 'DAY' | 'WEEK' | 'MONTH';
+    telegramId?: number;
+    activeInternalSquads?: string[];
+    description?: string;
+    tag?: string;
+  }): Promise<RemnawaveUser> {
+    return this.request({ url: '/api/users', method: 'POST', data: body });
   }
 
   createHost(body: {
