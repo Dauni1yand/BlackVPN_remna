@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+*.log
+
+# Contains a superadmin password and a long-lived API token — never commit.
+bootstrap-summary.json
+add-node-result.json

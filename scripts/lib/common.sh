@@ -110,6 +110,21 @@ install_docker() {
     log_info "Docker installed: $(docker --version)"
 }
 
+# Idempotent Node.js LTS install via NodeSource. Needed on the main server
+# to run bot/ (panel bootstrap + node registration CLIs, and later the bot
+# itself).
+install_nodejs() {
+    if require_cmd node && [[ "$(node -e 'console.log(process.versions.node.split(".")[0])')" -ge 18 ]]; then
+        log_info "Node.js is already installed: $(node --version)"
+        return 0
+    fi
+    log_step "Installing Node.js 20.x (NodeSource)"
+    install_pkgs curl ca-certificates gnupg
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+    install_pkgs nodejs
+    log_info "Node.js installed: $(node --version)"
+}
+
 # Base firewall: SSH always allowed, deny everything else by default.
 # Extra "port/proto" pairs (e.g. "80/tcp" "443/tcp") can be opened to
 # everyone; use ufw_allow_from for source-restricted rules (nodes).

@@ -34,6 +34,8 @@ detect_os
 
 REMNAWAVE_DIR="${REMNAWAVE_DIR:-/opt/remnawave}"
 CADDY_DIR="$REMNAWAVE_DIR/caddy"
+BOT_DIR="$SCRIPT_DIR/../bot"
+BOOTSTRAP_OUT="$REMNAWAVE_DIR/bootstrap-summary.json"
 BACKEND_REF="${REMNAWAVE_BACKEND_REF:-main}"
 COMPOSE_URL="https://raw.githubusercontent.com/remnawave/backend/refs/heads/${BACKEND_REF}/docker-compose-prod.yml"
 ENV_SAMPLE_URL="https://raw.githubusercontent.com/remnawave/backend/refs/heads/${BACKEND_REF}/.env.sample"
@@ -131,21 +133,40 @@ fi
 
 docker compose up -d
 
+if [[ -f "$BOOTSTRAP_OUT" ]]; then
+    log_warn "$BOOTSTRAP_OUT already exists — panel already bootstrapped (superadmin/API token/Reality config profile), skipping."
+else
+    log_step "Installing Node.js (to run the panel bootstrap script)"
+    install_nodejs
+
+    log_step "Bootstrapping the panel: superadmin account, API token, VLESS+Reality config profile"
+    ( cd "$BOT_DIR" && npm ci --no-audit --no-fund )
+    (
+        cd "$BOT_DIR"
+        PANEL_URL="http://127.0.0.1:3000" OUT_FILE="$BOOTSTRAP_OUT" npm run --silent bootstrap
+    )
+    chmod 600 "$BOOTSTRAP_OUT"
+fi
+
 log_step "Done"
 cat <<EOF
 
-Remnawave Panel is up behind Caddy.
+Remnawave Panel is up behind Caddy, and bootstrapped (superadmin account,
+API token for the bot, and a VLESS+Reality inbound on top of the panel's
+own default config profile).
 
   Panel URL:        https://${PANEL_DOMAIN}
   Panel files:       ${REMNAWAVE_DIR} (.env has generated secrets, chmod 600)
   Caddy files:        ${CADDY_DIR}
+  Bootstrap summary:   ${BOOTSTRAP_OUT} (superadmin password + API token — chmod 600, scroll up for the one-time printout)
 
 Next steps:
-  1. Open https://${PANEL_DOMAIN} in a browser and create the superadmin
-     account (first visit registers it — do this before anyone else does).
-  2. To add a VPN node, use scripts/install-node.sh on the node's server
-     with the SECRET_KEY/NODE_PORT obtained from the panel (Nodes -> Add
-     node, or via the admin bot once it's wired up).
+  1. Log in at https://${PANEL_DOMAIN} with the superadmin credentials
+     printed above (or read them from ${BOOTSTRAP_OUT}).
+  2. To add a VPN node, run scripts/add-node.sh — it registers the node
+     and its Host entry on the panel via the API token from bootstrap, and
+     prints (or, with NODE_SSH_HOST set, runs) the scripts/install-node.sh
+     command for the node's own server.
 
 For stronger perimeter security (MFA-protected login, API-key gated
 /api/* routes) see Remnawave's own "Caddy with auth" guide and swap it in
